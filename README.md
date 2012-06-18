@@ -85,3 +85,14 @@ And you can specify `./configure` options by `--configure` option.
             --modules="ngx_dav_ext_module"
 
         ngxbrew use default
+
+# Copyright and License
+
+ngxbrew was made by making reference to [nodebrew](https://github.com/hokaccha/nodebrew).
+
+nodebrew's author is [hokaccha](https://github.com/hokaccha).
+
+ngxbrew is under MIT-license.
+
+(C) 2012 Naoki Okamura some rights recived.
+
