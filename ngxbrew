@@ -360,6 +360,8 @@ Usage:
     ngxbrew list
     ngxbrew ls
     ngxbrew ls-remote
+    
+    ngxbrew buildargs <name>
 
     ngxbrew clean <version> | all
    
