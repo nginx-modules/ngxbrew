@@ -196,6 +196,39 @@ sub run_command_install {
     };
 }
 
+sub run_command_uninstall {
+    my ( $self, $args ) = @_;
+
+    my $name   = $args->[0];
+    my $target = $self->{'nginx_dir'} . '/' . $name;
+    my $current = $self->get_current_nginx;
+
+    if ( ! -e $target ) {
+        print "name (${name}) is not installed\n";
+        return 0;
+    }
+
+    rmtree $target;
+
+    if ( $current eq $name ) {
+        unlink $self->{'bin_dir'} . '/nginx';
+    }
+
+    print "name (${name}) is uninstalled\n";
+}
+
+sub run_command_buildargs {
+    my ( $self, $args ) = @_;
+
+    my $name = $args->[0];
+       $name = $self->get_current_nginx if ( ! defined $name );
+
+    my $nginx = $self->{'nginx_dir'} . "/${name}/sbin/nginx";
+
+    print "Installed nginx (${name})\n";
+    print "=========================\n";
+    return system($nginx, '-V');
+}
 
 sub run_command_ls_remote {
     my ( $self, $args ) = @_;
@@ -377,6 +410,18 @@ sub setup_brew {
     }
 
     return 1;
+}
+
+sub get_current_nginx {
+    my $self = shift;
+    my $link = $self->{'bin_dir'} . '/nginx';
+
+    return 'none' if ( ! -l $link );
+
+    my $realpath  = readlink $link;
+    my ($version) = ( $realpath =~ m{^$self->{'nginx_dir'}/(.+)/sbin/nginx$} );
+
+    return $version || 'none';
 }
 
 sub sort_version {
