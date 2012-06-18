@@ -8,10 +8,10 @@ package NgxBrew;
 our $VERSION = '0.01';
 
 use Getopt::Long;
-use File::Spec;
+use File::Path qw/rmtree/;
 
 our $NGXBREW_ROOT = $ENV{'NGXBREW_ROOT'} || $ENV{'HOME'} . '/.ngxbrew';
-our $NGXBREW_REMOTELIST = 'http://nginx.org/download/';
+our $NGXBREW_REMOTELIST = 'http://nginx.org/download';
 our $NGXBREW_SOURCE = "https://raw.github.com/nyarla/ngxbrew/master/ngxbrew";
 
 sub new {
@@ -38,7 +38,7 @@ sub init {
 
     $self->{'root_dir'}   = $root;
     $self->{'bin_dir'}    = "${root}/bin";
-    $self->{'nginx_dir'}  = "${root}/nginx";
+    $self->{'nginx_dir'}  = "${root}/nginxes";
     $self->{'module_dir'} = "${root}/modules";
     $self->{'dist_dir'}   = "${root}/dists";
 
@@ -69,20 +69,20 @@ sub run_command_use {
     my ( $self, $args ) = @_;
 
     my $nginx_dir = $self->{'nginx_dir'};
-    my $bindir = $self->{'bin_dir'};
-    my $version = $args->[0];
+    my $bindir    = $self->{'bin_dir'};
+    my $name      = $args->[0];
 
-    if ( ! defined $version ) {
-        print "required version.\n";
+    if ( ! defined $name ) {
+        print "required installed name.\n";
         return 0;
     }
 
-    if ( ! -d "${nginx_dir}/${version}" ) {
-        print "nginx version ${version} is not installed.\n";
+    if ( ! -d "${nginx_dir}/${name}" ) {
+        print "name (${name}) is not installed.\n";
         return 0;
     }
     else {
-        my $from = "${nginx_dir}/${version}/sbin/nginx";
+        my $from = "${nginx_dir}/${name}/sbin/nginx";
         my $to   = "${bindir}/nginx";
 
         my $brew = $self->{'root_dir'} . "/ngxbrew";
@@ -91,11 +91,111 @@ sub run_command_use {
         symlink $from, $to;
         symlink $brew, "${bindir}/ngxbrew" if ( ! -l "${bindir}/ngxbrew" );
         
-        print "use ${version}\n";
+        print "use ${name}\n";
 
         return 1;
     }
 }
+
+sub run_command_install {
+    my ( $self, $args ) = @_;
+
+    local @ARGV = @{ $args };
+
+    my $version = shift @ARGV;
+    my $name    = shift @ARGV;
+
+    if ( ! defined $version ) {
+        print "required version\n";
+        return 0;
+    }
+
+    if ( ! defined $name ) {
+        print "required name\n";
+        return 0;
+    }
+
+    if ( ! grep { $version eq $_ } @{ $self->get_remote_version } ) {
+        print "${version} not found\n";
+        return 0;
+    }
+
+    if ( -e "$self->{'nginx_dir'}/${version}" ) {
+        print "${version} is already installed\n";
+        return 0;
+    }
+
+    my $url = "${NGXBREW_REMOTELIST}/nginx-${version}.tar.gz";
+
+    if ( ! $self->{'ua'}->getable($url) ) {
+        print "${version} is not found\n";
+        return 0;
+    }
+
+    my $src_path = $self->{'dist_dir'} . "/nginx-${version}";
+    if ( ! -d $src_path ) {
+        $self->run_command_clean([$version]);
+
+        print "fetch: ${url}\n";
+        $self->{'ua'}->dl(
+            $url,
+            $self->{'dist_dir'} . "/nginx-${version}.tar.gz"
+        ) or die "download is failed: ${url}";
+
+        system qq{ cd "$self->{'dist_dir'}" &&
+                   tar zxvf "nginx-${version}.tar.gz" };
+    }
+    else {
+        print "Using before installed cache\n\n";
+    }
+
+    my @enables   = ();
+    my @disables  = ();
+    my @modules   = ();
+    my $configure = q{};
+
+    GetOptions(
+        "enable=s"    => \@enables,
+        "disable=s"   => \@disables,
+        "modules=s"   => \@modules,
+        "configure=s" => \$configure,
+        );
+
+    Getopt::Long::Configure(qw/pass_through bundling/);
+
+    @enables  = split m{\s*,\s*}, join(q{,}, @enables);
+    @disables = split m{\s*,\s*}, join(q{,}, @disables);
+    @modules  = split m{\s*,\s*}, join(q{,}, @modules);
+
+    my $options = q{};
+
+    # prefix
+    $options .= qq{--prefix="@{[ $self->{'nginx_dir'} . '/' . $name ]}" };
+
+    if ( @enables ) {
+        $options .= "--with-${_}_module " for @enables;
+    }
+
+    if ( @disables ) {
+        $options .= "--witout-${_}_module " for @disables;
+    }
+
+    if ( @modules ) {
+        $options .= qq[--add-module="$self->{'module_dir'}/${_}" ] for @modules
+    }
+
+    if ( $configure ne q{} ) {
+        $options .= $configure;
+    }
+
+    return system qq{
+        cd "${src_path}" &&
+        ./configure ${options} &&
+        make &&
+        make install
+    };
+}
+
 
 sub run_command_ls_remote {
     my ( $self, $args ) = @_;
@@ -117,6 +217,39 @@ sub run_command_ls_remote {
     }
 
     print "\n";
+}
+
+sub run_command_clean {
+    my ( $self, $args ) = @_;
+
+    my $version = $args->[0];
+    
+    if ( $version eq 'all' ) {
+        opendir( my $dh, $self->{'dist_dir'} )
+            or die "Cannot open distdir: ${!}";
+        
+        while ( my $file = readdir $dh ) {
+            next if ( $file =~ m{^\.} );
+            my $path = $self->{'dist_dir'} . "/${file}";
+
+            unlink $path if ( -f $path );
+            rmtree $path if ( -d $path );
+        }
+
+        print "clean all\n";
+        return 1;
+    }
+    elsif (    -e $self->{'dist_dir'} . "/nginx-${version}.tar.gz"
+            || -e $self->{'dist_dir'} . "/nginx-${version}") {
+        unlink $self->{'dist_dir'} . "/nginx-${version}.tar.gz";
+        rmtree $self->{'dist_dir'} . "/nginx-${version}";
+
+        print "clean ${version}\n";
+    }
+    else {
+        print "${version} is already cleaned\n";
+        return 0;
+    }
 }
 
 sub run_command_setup {
@@ -151,20 +284,27 @@ ngxbrew $VERSION
 
 Usage:
     ngxbrew help
+    ngxbrew version
 
-    ngxbrew install <version>
-    ngxbrew uninstall <versin>
-    ngxbrew use <version>
-    ngxbrew list <version>
+    ngxbrew install <version> <name>
+    ngxbrew uninstall <name>
+
+    ngxbrew use <name>
+
+    ngxbrew list
     ngxbrew ls
     ngxbrew ls-remote
-    ngxbrew alias <key> <version>
+
     ngxbrew clean <version> | all
+   
     ngxbrew selfupdate
 
 Example:
-    ngxbrew install 1.2.1 --enable="http_ssl_module,http_dav_module"
-    ngxbrew use 1.2.1
+    ngxbrew install 1.2.1 default \
+        --enable="http_dav_module" \
+        --modules="ngx_dav_ext_module"
+
+    ngxbrew use default
 __HELP__
 }
 
@@ -187,7 +327,7 @@ sub run_command_selfupdate {
 sub get_remote_version {
     my ( $self ) = @_;
 
-    my $html     = $self->{'ua'}->get($NGXBREW_REMOTELIST);
+    my $html     = $self->{'ua'}->get("${NGXBREW_REMOTELIST}/");
     my @versions = ();
     my %tmp;
     while ( $html =~ m{nginx-(\d\.\d\.\d)\.tar\.gz}g ) {
