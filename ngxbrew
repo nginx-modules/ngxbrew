@@ -10,8 +10,9 @@ our $VERSION = '0.01';
 use Getopt::Long;
 use File::Spec;
 
-our $NGXBREW_ROOT       = $ENV{'NGXBREW_ROOT'} || $ENV{'HOME'} . '/.ngxbrew';
+our $NGXBREW_ROOT = $ENV{'NGXBREW_ROOT'} || $ENV{'HOME'} . '/.ngxbrew';
 our $NGXBREW_REMOTELIST = 'http://nginx.org/download/';
+our $NGXBREW_SOURCE = "https://raw.github.com/nyarla/ngxbrew/master/ngxbrew";
 
 sub new {
     my ( $class, @argv ) = @_;
@@ -118,6 +119,30 @@ sub run_command_ls_remote {
     print "\n";
 }
 
+sub run_command_setup {
+    my ( $self, $args ) = @_;
+
+    $self->setup_path();
+    $self->setup_brew();
+
+    my $rootdir = $self->{'root_dir'};
+
+    print <<"...";
+Install ngxbrew in ${rootdir}
+========================================================
+Add path:
+    export PATH=${rootdir}/bin:\$PATH
+========================================================
+NOTE:
+--------------------------------------------------------
+if you set NGXBREW_ROOT env value on your shell,
+You should write NGXBREW_ROOT env value on your dotfiles
+...
+
+    return 1;
+}
+
+
 sub run_command_help {
     my ( $self, $args ) = @_;
 
@@ -150,6 +175,15 @@ sub run_command_version {
     return 1;
 }
 
+sub run_command_selfupdate {
+    my ( $self, $args ) = @_;
+
+    $self->setup_brew();
+    print "update successfull\n";
+
+    return 1;
+}
+
 sub get_remote_version {
     my ( $self ) = @_;
 
@@ -162,6 +196,47 @@ sub get_remote_version {
     }
     
     return \@versions;
+}
+
+sub setup_path {
+    my $self = shift;
+
+    for my $target (qw/ root_dir bin_dir nginx_dir module_dir dist_dir /) {
+        if ( ! -d $self->{$target} ) {
+            local $!;
+            my $RETVAL = system(qw/ mkdir -p /, $self->{$target});
+            if ( $RETVAL != 0 ) {
+                die "Failed to mkdir: " . $self->{$target} .  ": ${!}"; 
+            }
+        }
+    }
+
+    return 1;
+}
+
+sub setup_brew {
+    my $self = shift;
+
+    print "fetching ngxbrew...\n";
+    
+    my $root_dir    = $self->{'root_dir'};
+    my $bindir      = $self->{'bin_dir'};
+
+    my $brew_source = $self->{'ua'}->get($NGXBREW_SOURCE);
+    my $brew_path   = $self->{'root_dir'} . '/ngxbrew';
+
+    open( my $fh, '>', $brew_path )
+        or die "Cannot open file: ${brew_path}: ${!}";
+    print $fh $brew_source;
+    close($fh);
+
+    `chmod +x ${brew_path}`;
+
+    if ( ! -l "${bindir}/ngxbrew" ) {
+        symlink $brew_path, "${bindir}/ngxbrew";
+    }
+
+    return 1;
 }
 
 sub sort_version {
