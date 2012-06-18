@@ -230,6 +230,39 @@ sub run_command_buildargs {
     return system($nginx, '-V');
 }
 
+sub run_command_ls {
+    my ( $self, $args ) = @_;
+    return $self->run_command_list($args);
+}
+
+sub run_command_list {
+    my ( $self, $args ) = @_;
+    my @nginxes = ();
+
+    opendir( my $dh, $self->{'nginx_dir'} )
+        or die "Cannot open nginx dir:" .  $self->{'nginx_dir'} . " : ${!}";
+
+    while ( my $file = readdir($dh) ) {
+        next if ( $file =~ m{^\.} );
+
+        my $name = $file;
+        $name =~ s{^$self->{'nginx_dir'}/}{};
+        $name =~ s{^/*|/*$}{}g;
+
+        push @nginxes, $name;
+    }
+
+    close($dh);
+    
+    print scalar(@nginxes)
+        ? join(qq{\n}, @nginxes)
+        : 'nginx is not installed';
+
+    print "\n\ncurrent: " . $self->get_current_nginx . "\n";
+
+    return 1;
+}
+
 sub run_command_ls_remote {
     my ( $self, $args ) = @_;
 
