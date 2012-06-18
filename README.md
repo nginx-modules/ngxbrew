@@ -47,12 +47,12 @@ And you can specify `./configure` options by `--configure` option.
 
 # Adding and Installing 3rd party module
 
-   $ cd ~/.ngxbrew/modules
-   $ git clone git://github.com/arut/nginx-dav-ext-module.git
-   $ ls -F
-   nginx-dav-ext-module/ yet-another-nginx-module/
+    $ cd ~/.ngxbrew/modules
+    $ git clone git://github.com/arut/nginx-dav-ext-module.git
+    $ ls -F
+    nginx-dav-ext-module/ yet-another-nginx-module/
 
-   $ ngxbrew install 1.2.1 --module="nginx-dav-ext-module,yet-another-nginx-module"
+    $ ngxbrew install 1.2.1 --module="nginx-dav-ext-module,yet-another-nginx-module"
 
 
 # Command
