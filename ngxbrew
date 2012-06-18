@@ -1,0 +1,234 @@
+#!/usr/bin/env perl
+
+use strict;
+use warnings;
+
+package NgxBrew;
+
+our $VERSION = '0.01';
+
+use Getopt::Long;
+use File::Spec;
+
+our $NGXBREW_ROOT       = $ENV{'NGXBREW_ROOT'} || $ENV{'HOME'} . '/.ngxbrew';
+our $NGXBREW_REMOTELIST = 'http://nginx.org/download/';
+
+sub new {
+    my ( $class, @argv ) = @_;
+
+    my $command = shift @argv;
+    my @args    = @argv;
+
+    my $self    = bless {
+        command => $command,
+        args    => [ @args ],
+        ua      => NgxBrew::UA->new,
+    }, $class;
+
+    $self->init();
+
+    return $self;
+}
+
+sub init {
+    my $self = shift;
+
+    my $root = $NGXBREW_ROOT;
+
+    $self->{'root_dir'}   = $root;
+    $self->{'bin_dir'}    = "${root}/bin";
+    $self->{'nginx_dir'}  = "${root}/nginx";
+    $self->{'module_dir'} = "${root}/modules";
+    $self->{'dist_dir'}   = "${root}/dists";
+
+    return $self;
+}
+
+sub run {
+    my $self = shift;
+
+    my $command = $self->{'command'} || q{};
+    my $args    = $self->{'args'};
+
+    $command =~ s{-}{_}g;
+    my $ret;
+
+    if ( my $action = $self->can("run_command_${command}") ) {
+        $ret = $action->( $self, $args );
+    }
+    else {
+        $self->run_command_help($args);
+        exit 1;
+    }
+
+    return $ret
+}
+
+sub run_command_use {
+    my ( $self, $args ) = @_;
+
+    my $nginx_dir = $self->{'nginx_dir'};
+    my $bindir = $self->{'bin_dir'};
+    my $version = $args->[0];
+
+    if ( ! defined $version ) {
+        print "required version.\n";
+        return 0;
+    }
+
+    if ( ! -d "${nginx_dir}/${version}" ) {
+        print "nginx version ${version} is not installed.\n";
+        return 0;
+    }
+    else {
+        my $from = "${nginx_dir}/${version}/sbin/nginx";
+        my $to   = "${bindir}/nginx";
+
+        my $brew = $self->{'root_dir'} . "/ngxbrew";
+
+        unlink $to if ( -l $to );
+        symlink $from, $to;
+        symlink $brew, "${bindir}/ngxbrew" if ( ! -l "${bindir}/ngxbrew" );
+        
+        print "use ${version}\n";
+
+        return 1;
+    }
+}
+
+sub run_command_ls_remote {
+    my ( $self, $args ) = @_;
+
+    my $versions = sort_version($self->get_remote_version);
+    my $i = 0;
+    my %tmp;
+
+    for my $version ( @{ $versions } ) {
+        my ( $v1, $v2, $v3 ) = split m{\.}, $version;
+
+        if ( ! $tmp{"${v1}.${v2}"}++ ) {
+            print "\n\n" if ( $i );
+            $i = 0;
+        }
+
+        print $version;
+        print ++$i % 8 == 0 ? "\n" : ' ' x ( 8 - length $version );
+    }
+
+    print "\n";
+}
+
+sub run_command_help {
+    my ( $self, $args ) = @_;
+
+    print <<'__HELP__';
+ngxbrew $VERSION
+
+Usage:
+    ngxbrew help
+
+    ngxbrew install <version>
+    ngxbrew uninstall <versin>
+    ngxbrew use <version>
+    ngxbrew list <version>
+    ngxbrew ls
+    ngxbrew ls-remote
+    ngxbrew alias <key> <version>
+    ngxbrew clean <version> | all
+    ngxbrew selfupdate
+
+Example:
+    ngxbrew install 1.2.1 --enable="http_ssl_module,http_dav_module"
+    ngxbrew use 1.2.1
+__HELP__
+}
+
+sub run_command_version {
+    my ( $self, $command ) = @_;
+
+    print "ngxbrew version ${VERSION}\n";
+    return 1;
+}
+
+sub get_remote_version {
+    my ( $self ) = @_;
+
+    my $html     = $self->{'ua'}->get($NGXBREW_REMOTELIST);
+    my @versions = ();
+    my %tmp;
+    while ( $html =~ m{nginx-(\d\.\d\.\d)\.tar\.gz}g ) {
+        my $ver = $1;
+        push @versions, $ver unless( $tmp{$ver}++ );
+    }
+    
+    return \@versions;
+}
+
+sub sort_version {
+    my $versions = shift;
+
+    return [sort {
+        my ( $a1, $a2, $a3 ) = split m{\.}, $a;
+        my ( $b1, $b2, $b3 ) = split m{\.}, $b;
+
+        $a1 <=> $b1 || $a2 <=> $b2 || $a3 <=> $b3
+    } @{ $versions }];
+}
+
+package NgxBrew::UA;
+
+sub new {
+    my $class = shift;
+
+    if ( `which curl` ) {
+        return NgxBrew::UA::curl->new;
+    }
+    elsif ( `which wget` ) {
+        return NgxBrew::UA::wget->new;
+    }
+    else {
+        die "curl or wget is required\n";
+    }
+}
+
+package NgxBrew::UA::curl;
+
+sub new { bless {}, shift }
+
+sub getable {
+    my ( $self, $url ) = @_;
+    `curl -Is "${url}"` =~ m{200 OK};
+}
+
+sub get {
+    my ( $self, $url ) = @_;
+    return `curl -s "${url}"`;
+}
+
+sub dl {
+    my ( $self, $url, $path ) = @_;
+    return system(qw/curl -C - --progress-bar/, $url, '-o', $path) == 0;
+}
+
+package NgxBrew::UA::wget;
+
+sub new { bless {}, shift }
+
+sub getable {
+    my ( $self, $url ) = @_;
+    return `wget -Sq --dpider "${url} 2>&1"` =~ m{200 OK};
+}
+
+sub get {
+    my ( $self, $url ) = @_;
+    return `wget -q "${url}" -O -`;
+}
+
+sub dl {
+    my ( $self, $url, $path ) = @_;
+    return system(qw/ wget -c /, $url, '-O', $path) == 0;
+}
+
+package main;
+
+( NgxBrew->new(@ARGV)->run ) ? exit 0 : exit 1;
