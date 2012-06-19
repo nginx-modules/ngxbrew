@@ -102,6 +102,24 @@ sub run_command_install {
 
     local @ARGV = @{ $args };
 
+    my @enables   = ();
+    my @disables  = ();
+    my @modules   = ();
+    my $configure = q{};
+
+    GetOptions(
+        "enable=s"    => \@enables,
+        "disable=s"   => \@disables,
+        "modules=s"   => \@modules,
+        "configure=s" => \$configure,
+        );
+
+    Getopt::Long::Configure(qw/pass_through bundling/);
+
+    @enables  = split m{\s*,\s*}, join(q{,}, @enables);
+    @disables = split m{\s*,\s*}, join(q{,}, @disables);
+    @modules  = split m{\s*,\s*}, join(q{,}, @modules);
+
     my $version = shift @ARGV;
     my $name    = shift @ARGV;
 
@@ -148,24 +166,6 @@ sub run_command_install {
     else {
         print "Using before installed cache\n\n";
     }
-
-    my @enables   = ();
-    my @disables  = ();
-    my @modules   = ();
-    my $configure = q{};
-
-    GetOptions(
-        "enable=s"    => \@enables,
-        "disable=s"   => \@disables,
-        "modules=s"   => \@modules,
-        "configure=s" => \$configure,
-        );
-
-    Getopt::Long::Configure(qw/pass_through bundling/);
-
-    @enables  = split m{\s*,\s*}, join(q{,}, @enables);
-    @disables = split m{\s*,\s*}, join(q{,}, @disables);
-    @modules  = split m{\s*,\s*}, join(q{,}, @modules);
 
     my $options = q{};
 
